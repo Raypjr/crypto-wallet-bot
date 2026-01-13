@@ -402,21 +402,25 @@ def main():
     if all("COLE_SEU" in addr for addr in WALLETS.values()):
         print("⚠️ Configure os endereços das wallets!")
     
+    # Cria aplicação com job_queue habilitado
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_callback))
     
-    # Monitoramento automático
-    app.job_queue.run_repeating(
-        monitor_wallets, 
-        interval=CHECK_INTERVAL_MINUTES * 60,
-        first=10
-    )
-    
-    print(f"✅ Bot ativo!")
-    print(f"🔔 Monitoramento: {CHECK_INTERVAL_MINUTES} min")
-    print(f"🎯 Alerta: {MIN_WALLETS_FOR_ALERT}+ wallets")
+    # Monitoramento automático usando job_queue
+    job_queue = app.job_queue
+    if job_queue:
+        job_queue.run_repeating(
+            monitor_wallets, 
+            interval=CHECK_INTERVAL_MINUTES * 60,
+            first=10
+        )
+        print(f"✅ Bot ativo!")
+        print(f"🔔 Monitoramento: {CHECK_INTERVAL_MINUTES} min")
+        print(f"🎯 Alerta: {MIN_WALLETS_FOR_ALERT}+ wallets")
+    else:
+        print("⚠️ JobQueue indisponível")
     
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

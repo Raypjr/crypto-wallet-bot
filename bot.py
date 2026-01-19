@@ -389,6 +389,12 @@ async def show_status(query):
     await query.edit_message_text(message, parse_mode='Markdown')
 
 # ==================== MAIN ====================
+async def start_monitoring(application: Application):
+    """Inicia o monitoramento periódico"""
+    while True:
+        await monitor_wallets(application)
+        await asyncio.sleep(CHECK_INTERVAL_MINUTES * 60)
+
 def main():
     print("🚀 Iniciando bot...")
     
@@ -399,28 +405,18 @@ def main():
     if not YOUR_CHAT_ID:
         print("⚠️ YOUR_CHAT_ID não configurado")
     
-    if all("COLE_SEU" in addr for addr in WALLETS.values()):
-        print("⚠️ Configure os endereços das wallets!")
-    
-    # Cria aplicação com job_queue habilitado
+    # Cria aplicação
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_callback))
     
-    # Monitoramento automático usando job_queue
-    job_queue = app.job_queue
-    if job_queue:
-        job_queue.run_repeating(
-            monitor_wallets, 
-            interval=CHECK_INTERVAL_MINUTES * 60,
-            first=10
-        )
-        print(f"✅ Bot ativo!")
-        print(f"🔔 Monitoramento: {CHECK_INTERVAL_MINUTES} min")
-        print(f"🎯 Alerta: {MIN_WALLETS_FOR_ALERT}+ wallets")
-    else:
-        print("⚠️ JobQueue indisponível")
+    print(f"✅ Bot ativo!")
+    print(f"🔔 Monitoramento: {CHECK_INTERVAL_MINUTES} min")
+    print(f"🎯 Alerta: {MIN_WALLETS_FOR_ALERT}+ wallets")
+    
+    # Inicia monitoramento em background
+    asyncio.create_task(start_monitoring(app))
     
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

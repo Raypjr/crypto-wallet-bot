@@ -13,8 +13,8 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 YOUR_CHAT_ID = os.getenv("YOUR_CHAT_ID", "")  # Configure depois
 
 # CONFIGURAÇÃO DE ALERTAS
-CHECK_INTERVAL_MINUTES = 2  # Verifica a cada 2 minutos
-MIN_WALLETS_FOR_ALERT = 2   # Alerta quando 2+ wallets tiverem o mesmo token
+CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES", "5"))  # Verifica a cada X minutos
+MIN_WALLETS_FOR_ALERT = int(os.getenv("MIN_WALLETS_FOR_ALERT", "2"))   # Alerta quando X+ wallets tiverem o mesmo token
 
 # ==================== SUAS WALLETS ====================
 WALLETS = {
@@ -389,12 +389,6 @@ async def show_status(query):
     await query.edit_message_text(message, parse_mode='Markdown')
 
 # ==================== MAIN ====================
-async def start_monitoring(application: Application):
-    """Inicia o monitoramento periódico"""
-    while True:
-        await monitor_wallets(application)
-        await asyncio.sleep(CHECK_INTERVAL_MINUTES * 60)
-
 def main():
     print("🚀 Iniciando bot...")
     
@@ -415,8 +409,12 @@ def main():
     print(f"🔔 Monitoramento: {CHECK_INTERVAL_MINUTES} min")
     print(f"🎯 Alerta: {MIN_WALLETS_FOR_ALERT}+ wallets")
     
-    # Inicia monitoramento em background
-    asyncio.create_task(start_monitoring(app))
+    # Adiciona job de monitoramento
+    app.job_queue.run_repeating(
+        monitor_wallets,
+        interval=CHECK_INTERVAL_MINUTES * 60,
+        first=10
+    )
     
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 

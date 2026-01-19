@@ -18,8 +18,13 @@ MIN_WALLETS_FOR_ALERT = int(os.getenv("MIN_WALLETS_FOR_ALERT", "2"))   # Alerta 
 
 # ==================== SUAS WALLETS ====================
 WALLETS = {
+    "profit": "G5nxEXuFMfV74DSnsrSatqCW32F34XUnBeq3PfDS7w5E",
     "Testiclecabal3": "pJRRw7byDh4witgcYsmGm5N7nEJK1Kzo7U39PkbzQUQ",
+    "Andy": "AjmmrnMkd4FHe7HZULcof2WZaR7x2ivdvNJwGcLJz2YS",
+    "JizzTrader": "6Ee7NNNNCfbSXKD1u81616Qyj1jK34DyWvvH5BCEsMFU",
     "huigendeshen": "Gdaqp3ND6r3HVAWXpawkQU18EuQqwNxpaeeio8ASVAYd",
+    "Psy1": "9hpvgGFPC4dfMEXS6uzjm4xDw41KruviV77FFykbjXXf",
+    "Psy2": "49foKJpRnZUaPKsDgnQhUFRMk7NX4zD5KgtVpxgvctLa",
     "Smart2": "BC8yiFFQWFEKrEEj75zYsuK3ZDCfv6QEeMRif9oZZ9TW",
     "Buttwhale": "DPiQs7yP5WnBxN7RwttMKkrndmeTzeVZ69sxeAswxm8r",
     "Asta": "AstaWuJuQiAS3AfqmM3xZxrJhkkZNXtW4VyaGQfqV6JL",
@@ -30,14 +35,18 @@ WALLETS = {
     "Insider": "CyHWA7ru59DRzdZASd7EpJFdn5JfuaSSe1Ges6g3XtLD",
     "TesticleCabal2": "3ffMhPbNhmhzZoUqWNKQ2TKsHSg7UpVJAQzB95Ytrrr6",
     "Uranus0": "8VwmbW9VehM9XEc5tLinSAhag8TcrfcMnagmWKEGtxN7",
+    "114514": "C7hiwgERpDEDki8bVHcwADJ1XWjczLw8zRFLtz85cMj5",
     "Wallet-19": "Au1GUWfcadx7jMzhsg6gHGUgViYJrnPfL1vbdqnvLK4i",
     "Teep main 🗿": "5VBaSuVdNCHfNwghyaMKauKZpjXVBJNkLE6yVa8PreQj",
     "Mitch 🤡": "4Be9CvxqHW6BYiRAxW9Q3xu1ycTMWaL5z8NX4HR3ha7t",
     "Him": "DxjmHXm1p7cs8Tezdf2EJm5xnwp9QC2E8CbfD1aXeH1j",
     "Kagami": "DP7G43VPwR5Ab5rcjrCnvJ8UgvRXRHTWscMjRD1eSdGC",
+    "noob": "NrnKjCKsPMVyyx6yH7oVL8zFciRiBRuxFjdkSm6DR3x",
     "Powside": "CfExiuWfcCzydS3R4YYEcv8W9NUNgcR9xbApjSiDNr6c",
     "Powmain": "8zFZHuSRuDpuAR7J6FzwyF3vKNx4CVW3DFHJerQhc7Zd",
     "Cards": "3DEmhGgQxHsUXq5vLPc7vaiRP2cdJzU9oGDhpCe7n7b4",
+    "0xJumpman": "8eioZubsRjFkNEFcSHKDbWa8MkpmXMBvQcfarGsLviuE",
+    "Snowball": "6N4wVaL7hVtNEU9ACQLv9TCeJk8YJMcRhfqe5Vs7Z3F8",
     "Tom": "AWxr21P2srfkPLiPpqDYyWsKWR1bpJWtw5beVMiRxwZm",
     "PnutWhale": "FjmRj8y9xfDaj5Aygq88t5jAFbpxrbZ16JNPPG1sx9FQ",
     "Remus": "BCrTEXmWutwPz8qv6w1S5gDbaLnSLpXKM5kSGVWyyfxu",
@@ -114,13 +123,52 @@ class PublicRPCClient:
         return []
     
     async def get_token_metadata(self, mint_address: str) -> dict:
-        """Busca metadados do token em múltiplas fontes"""
-        # Tenta DexScreener primeiro (melhor para tokens DEX)
+        """Busca metadados do token em múltiplas fontes com prioridade"""
+        # 1. Tenta DexScreener primeiro (melhor para DEX tokens)
         dex_data = await self._get_dexscreener_data(mint_address)
-        if dex_data:
+        if dex_data and dex_data.get('symbol') != 'UNKNOWN':
             return dex_data
         
-        # Se não achar, tenta Solscan público
+        # 2. Tenta Jupiter Token List (base de dados estática)
+        jupiter_data = await self._get_jupiter_token_info(mint_address)
+        if jupiter_data:
+            return jupiter_data
+        
+        # 3. Tenta Solscan público como fallback
+        solscan_data = await self._get_solscan_data(mint_address)
+        if solscan_data:
+            return solscan_data
+        
+        # 4. Se nada funcionar, retorna dados básicos com o mint
+        return {
+            'symbol': mint_address[:6],  # Primeiros 6 chars do mint
+            'name': f'Token {mint_address[:8]}...',
+            'mint': mint_address,
+            'source': 'fallback'
+        }
+    
+    async def _get_jupiter_token_info(self, mint_address: str) -> dict:
+        """Busca token na lista do Jupiter"""
+        async with aiohttp.ClientSession() as session:
+            try:
+                url = "https://token.jup.ag/strict"
+                async with session.get(url, timeout=10) as resp:
+                    if resp.status == 200:
+                        tokens = await resp.json()
+                        for token in tokens:
+                            if token.get('address') == mint_address:
+                                return {
+                                    'symbol': token.get('symbol', 'UNKNOWN'),
+                                    'name': token.get('name', ''),
+                                    'mint': mint_address,
+                                    'source': 'jupiter'
+                                }
+            except Exception as e:
+                print(f"Erro Jupiter Token List: {e}")
+        return None
+    
+    async def _get_solscan_data(self, mint_address: str) -> dict:
+        """Busca no Solscan público"""
         async with aiohttp.ClientSession() as session:
             try:
                 url = f"https://public-api.solscan.io/token/meta"
@@ -128,14 +176,20 @@ class PublicRPCClient:
                 
                 async with session.get(url, params=params, timeout=10) as resp:
                     if resp.status == 200:
-                        return await resp.json()
+                        data = await resp.json()
+                        if data.get('symbol'):
+                            return {
+                                'symbol': data.get('symbol', 'UNKNOWN'),
+                                'name': data.get('name', ''),
+                                'mint': mint_address,
+                                'source': 'solscan'
+                            }
             except Exception as e:
                 print(f"Erro Solscan: {e}")
-        
-        return {}
+        return None
     
     async def _get_dexscreener_data(self, mint_address: str) -> dict:
-        """Busca dados do DexScreener - melhor fonte para tokens DEX"""
+        """Busca dados do DexScreener"""
         async with aiohttp.ClientSession() as session:
             try:
                 url = f"https://api.dexscreener.com/latest/dex/tokens/{mint_address}"
@@ -149,15 +203,24 @@ class PublicRPCClient:
                             # Pega o par com maior liquidez
                             best_pair = max(pairs, key=lambda p: float(p.get('liquidity', {}).get('usd', 0)))
                             
+                            symbol = best_pair.get('baseToken', {}).get('symbol', 'UNKNOWN')
+                            name = best_pair.get('baseToken', {}).get('name', '')
+                            
+                            # Se ainda for UNKNOWN, tenta pelo quoteToken
+                            if symbol == 'UNKNOWN' or not symbol:
+                                symbol = mint_address[:6]
+                            
                             return {
-                                'symbol': best_pair.get('baseToken', {}).get('symbol', 'UNKNOWN'),
-                                'name': best_pair.get('baseToken', {}).get('name', ''),
+                                'symbol': symbol,
+                                'name': name if name else f'Token {mint_address[:8]}',
+                                'mint': mint_address,
                                 'price_usd': float(best_pair.get('priceUsd', 0)),
                                 'dex': best_pair.get('dexId', ''),
                                 'liquidity': best_pair.get('liquidity', {}).get('usd', 0),
                                 'volume_24h': best_pair.get('volume', {}).get('h24', 0),
                                 'price_change_24h': best_pair.get('priceChange', {}).get('h24', 0),
                                 'url': best_pair.get('url', ''),
+                                'pairAddress': best_pair.get('pairAddress', ''),
                                 'source': 'dexscreener'
                             }
             except Exception as e:
@@ -200,10 +263,7 @@ class WalletAnalyzer:
             # Se houver pelo menos 1 wallet nova E o token já estava em outra(s) wallet(s)
             if new_wallets and len(previous_wallets) >= 1:
                 for new_wallet in new_wallets:
-                    # Ignora tokens UNKNOWN
-                    if token_info.symbol == "UNKNOWN":
-                        continue
-                    
+                    # NÃO ignora mais UNKNOWN - vamos mostrar com CA
                     new_holder_alerts.append({
                         'token': token_info,
                         'new_wallet': new_wallet,
@@ -296,7 +356,6 @@ class WalletAnalyzer:
         return [
             token for token in self.tokens.values() 
             if len(token.wallets_holding) >= min_wallets
-            and token.symbol != "UNKNOWN"  # Ignora UNKNOWN
         ]
 
 analyzer = WalletAnalyzer()

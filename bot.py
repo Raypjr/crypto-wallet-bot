@@ -13,7 +13,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 YOUR_CHAT_ID = os.getenv("YOUR_CHAT_ID", "")  # Configure depois
 
 # CONFIGURAÇÃO DE ALERTAS
-CHECK_INTERVAL_MINUTES = 5  # Verifica a cada 5 minutos
+CHECK_INTERVAL_MINUTES = 2  # Verifica a cada 2 minutos
 MIN_WALLETS_FOR_ALERT = 2   # Alerta quando 2+ wallets tiverem o mesmo token
 
 # ==================== SUAS WALLETS ====================

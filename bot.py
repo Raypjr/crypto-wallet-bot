@@ -178,10 +178,11 @@ class WalletAnalyzer:
     def __init__(self):
         self.rpc_client = PublicRPCClient()
         self.tokens: Dict[str, TokenInfo] = {}
-        self.alerted_tokens: Set[str] = set()
+        self.previous_tokens: Dict[str, Set[str]] = {}  # token_mint -> set de wallets que tinham
         self.last_check = datetime.now()
     
     async def analyze_all_wallets(self) -> Dict[str, TokenInfo]:
+        """Analisa todas as wallets e detecta NOVOS holders"""
         self.tokens.clear()
         
         for wallet_name, wallet_address in WALLETS.items():
@@ -190,6 +191,42 @@ class WalletAnalyzer:
         
         self.last_check = datetime.now()
         return self.tokens
+    
+    def detect_new_holders(self) -> List[tuple]:
+        """
+        Detecta tokens onde uma NOVA wallet acabou de comprar
+        Retorna: lista de (token, nova_wallet, todas_as_wallets_com_esse_token)
+        """
+        new_holder_alerts = []
+        
+        for token_mint, token_info in self.tokens.items():
+            current_wallets = token_info.wallets_holding
+            previous_wallets = self.previous_tokens.get(token_mint, set())
+            
+            # Detecta wallets que são NOVAS para este token
+            new_wallets = current_wallets - previous_wallets
+            
+            # Se houver pelo menos 1 wallet nova E o token já estava em outra(s) wallet(s)
+            if new_wallets and len(previous_wallets) >= 1:
+                for new_wallet in new_wallets:
+                    # Ignora tokens UNKNOWN
+                    if token_info.symbol == "UNKNOWN":
+                        continue
+                    
+                    new_holder_alerts.append({
+                        'token': token_info,
+                        'new_wallet': new_wallet,
+                        'all_wallets': current_wallets,
+                        'previous_wallets': previous_wallets
+                    })
+        
+        # Atualiza o estado anterior para a próxima verificação
+        self.previous_tokens = {
+            mint: set(token.wallets_holding) 
+            for mint, token in self.tokens.items()
+        }
+        
+        return new_holder_alerts
     
     async def _analyze_wallet(self, wallet_name: str, wallet_address: str):
         token_accounts = await self.rpc_client.get_token_accounts(wallet_address)
@@ -256,20 +293,19 @@ class WalletAnalyzer:
         return 0.0
     
     def get_new_common_tokens(self, min_wallets: int = 2) -> List[TokenInfo]:
-        common_tokens = [
-            token for token in self.tokens.values() 
-            if len(token.wallets_holding) >= min_wallets
-            and token.mint not in self.alerted_tokens
-        ]
-        return common_tokens
+        """DEPRECATED - usar detect_new_holders() ao invés"""
+        return []
     
     def mark_as_alerted(self, token_mint: str):
-        self.alerted_tokens.add(token_mint)
+        """DEPRECATED - não precisa mais"""
+        pass
     
     def get_common_tokens(self, min_wallets: int = 2) -> List[TokenInfo]:
+        """Retorna tokens presentes em X+ wallets (para UI)"""
         return [
             token for token in self.tokens.values() 
             if len(token.wallets_holding) >= min_wallets
+            and token.symbol != "UNKNOWN"  # Ignora UNKNOWN
         ]
 
 analyzer = WalletAnalyzer()

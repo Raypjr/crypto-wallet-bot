@@ -69,6 +69,7 @@ class TokenInfo:
         self.wallets_holding: Set[str] = set()
         self.wallet_data: Dict[str, dict] = {}
         self.first_seen = datetime.now()
+        self.dex_info: Dict = {}  # Informações extras do DEX
         
     def add_wallet(self, wallet_name: str, amount: float, value_usd: float, buy_price: float = None):
         self.wallets_holding.add(wallet_name)
@@ -122,6 +123,13 @@ class PublicRPCClient:
         return []
     
     async def get_token_metadata(self, mint_address: str) -> dict:
+        """Busca metadados do token em múltiplas fontes"""
+        # Tenta DexScreener primeiro (melhor para tokens DEX)
+        dex_data = await self._get_dexscreener_data(mint_address)
+        if dex_data:
+            return dex_data
+        
+        # Se não achar, tenta Solscan público
         async with aiohttp.ClientSession() as session:
             try:
                 url = f"https://public-api.solscan.io/token/meta"
@@ -131,8 +139,40 @@ class PublicRPCClient:
                     if resp.status == 200:
                         return await resp.json()
             except Exception as e:
-                print(f"Erro ao buscar metadata: {e}")
+                print(f"Erro Solscan: {e}")
+        
         return {}
+    
+    async def _get_dexscreener_data(self, mint_address: str) -> dict:
+        """Busca dados do DexScreener - melhor fonte para tokens DEX"""
+        async with aiohttp.ClientSession() as session:
+            try:
+                url = f"https://api.dexscreener.com/latest/dex/tokens/{mint_address}"
+                
+                async with session.get(url, timeout=10) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        pairs = data.get('pairs', [])
+                        
+                        if pairs:
+                            # Pega o par com maior liquidez
+                            best_pair = max(pairs, key=lambda p: float(p.get('liquidity', {}).get('usd', 0)))
+                            
+                            return {
+                                'symbol': best_pair.get('baseToken', {}).get('symbol', 'UNKNOWN'),
+                                'name': best_pair.get('baseToken', {}).get('name', ''),
+                                'price_usd': float(best_pair.get('priceUsd', 0)),
+                                'dex': best_pair.get('dexId', ''),
+                                'liquidity': best_pair.get('liquidity', {}).get('usd', 0),
+                                'volume_24h': best_pair.get('volume', {}).get('h24', 0),
+                                'price_change_24h': best_pair.get('priceChange', {}).get('h24', 0),
+                                'url': best_pair.get('url', ''),
+                                'source': 'dexscreener'
+                            }
+            except Exception as e:
+                print(f"Erro DexScreener: {e}")
+        
+        return None
 
 class WalletAnalyzer:
     def __init__(self):
@@ -163,14 +203,32 @@ class WalletAnalyzer:
                 amount = float(info.get('tokenAmount', {}).get('uiAmount', 0))
                 
                 if amount > 0 and token_mint:
+                    # Busca metadados (agora com DexScreener)
                     metadata = await self.rpc_client.get_token_metadata(token_mint)
+                    
                     symbol = metadata.get('symbol', 'UNKNOWN')
                     
-                    price = await self._get_token_price_jupiter(token_mint)
+                    # Se veio do DexScreener, já tem preço
+                    if metadata.get('source') == 'dexscreener':
+                        price = metadata.get('price_usd', 0)
+                    else:
+                        # Tenta Jupiter como fallback
+                        price = await self._get_token_price_jupiter(token_mint)
+                    
                     value_usd = amount * price if price else 0
                     
                     if token_mint not in self.tokens:
                         self.tokens[token_mint] = TokenInfo(symbol, token_mint)
+                        # Adiciona dados extras do DexScreener
+                        if metadata.get('source') == 'dexscreener':
+                            self.tokens[token_mint].dex_info = {
+                                'name': metadata.get('name', ''),
+                                'dex': metadata.get('dex', ''),
+                                'liquidity': metadata.get('liquidity', 0),
+                                'volume_24h': metadata.get('volume_24h', 0),
+                                'price_change_24h': metadata.get('price_change_24h', 0),
+                                'url': metadata.get('url', '')
+                            }
                     
                     self.tokens[token_mint].add_wallet(
                         wallet_name, 
